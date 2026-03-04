@@ -9,6 +9,7 @@ import React, {
   useRef,
 } from "react";
 import { v4 as uuidv4 } from "uuid";
+import { invoke } from "@tauri-apps/api/core";
 import {
   getSettings,
   saveSettings,
@@ -50,7 +51,10 @@ type Action =
   | { type: "SET_DETECTED_GATEWAY"; url: string | null; token: string | null }
   | { type: "SET_STREAMING"; isStreaming: boolean; conversationId?: string | null }
   | { type: "SET_STREAMING_CONTENT"; content: string; runId: string | null }
-  | { type: "SET_THEME"; theme: "dark" | "light" };
+  | { type: "SET_THEME"; theme: "dark" | "light" }
+  | { type: "SET_MODELS"; models: string[] }
+  | { type: "SET_CURRENT_MODEL"; model: string | null }
+  | { type: "SET_MODEL_MENU"; menuData: Record<string, string[]> };
 
 // ── Initial State ───────────────────────────────────────────────────
 
@@ -68,6 +72,9 @@ const initialState: AppState = {
   streamingContent: "",
   currentRunId: null,
   streamingConversationId: null,
+  availableModels: [],
+  currentModel: null,
+  modelMenuData: {},
 };
 
 // ── Reducer ─────────────────────────────────────────────────────────
@@ -136,6 +143,12 @@ function reducer(state: AppState, action: Action): AppState {
           ? { ...state.settings, theme: action.theme }
           : null,
       };
+    case "SET_MODELS":
+      return { ...state, availableModels: action.models };
+    case "SET_CURRENT_MODEL":
+      return { ...state, currentModel: action.model };
+    case "SET_MODEL_MENU":
+      return { ...state, modelMenuData: action.menuData };
     default:
       return state;
   }
@@ -167,6 +180,9 @@ interface StoreActions {
   sendMessage: (content: string, convId?: string) => Promise<void>;
   abortStreaming: () => Promise<void>;
   toggleTheme: () => Promise<void>;
+  loadModels: () => Promise<void>;
+  loadModelMenu: () => Promise<void>;
+  switchModel: (model: string) => Promise<void>;
 }
 
 // ── Provider ────────────────────────────────────────────────────────
@@ -184,6 +200,46 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const handleConnectionStatus = useCallback(
     (status: ConnectionStatus) => {
       dispatch({ type: "SET_CONNECTION_STATUS", status });
+      // Load models when connected
+      if (status === "connected") {
+        const gw = getGateway();
+        // First get current model from config
+        invoke<{ currentModel: string | null }>("get_current_model")
+          .then((data) => {
+            console.log("[store] get_current_model result:", data);
+            if (data.currentModel) {
+              dispatch({ type: "SET_CURRENT_MODEL", model: data.currentModel });
+            }
+          })
+          .catch((e) => {
+            console.log("[store] get_current_model error (non-critical):", e);
+          });
+        // Get model menu from config
+        invoke<Record<string, string[]>>("get_model_menu")
+          .then((data) => {
+            console.log("[store] get_model_menu result:", data);
+            dispatch({ type: "SET_MODEL_MENU", menuData: data });
+          })
+          .catch((e) => {
+            console.log("[store] get_model_menu error (non-critical):", e);
+          });
+        // Then get available models
+        gw.listModels().then((res) => {
+          if (res.ok && res.payload) {
+            const rawModels = (res.payload as any).models || [];
+            const models = rawModels.map((m: string | { name: string }) =>
+              typeof m === "string" ? m : (m.name || String(m))
+            );
+            dispatch({ type: "SET_MODELS", models });
+            // Only set default if no current model from config
+            if (!stateRef.current.currentModel && models.length > 0) {
+              dispatch({ type: "SET_CURRENT_MODEL", model: models[0] });
+            }
+          }
+        }).catch((e) => {
+          console.log("[store] listModels error (non-critical):", e);
+        });
+      }
     },
     []
   );
@@ -372,12 +428,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const sendMessageAction = useCallback(async (content: string, convId?: string) => {
+    console.log("[store] sendMessage called:", content, "convId:", convId);
     const current = stateRef.current;
     let activeId = convId || current.activeConversationId;
 
     // Create a new conversation if needed
     if (!activeId) {
+      console.log("[store] No activeId, creating new conversation...");
       activeId = await newConversation();
+      console.log("[store] Created new conversation:", activeId);
     }
 
     // Only block sending if this conversation is already streaming
@@ -387,10 +446,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     let conv = stateRef.current.conversations.find(
       (c) => c.id === activeId
     );
+    console.log("[store] Found conversation in state:", conv);
     if (!conv) {
       conv = await getConversation(activeId!);
+      console.log("[store] Found conversation in DB:", conv);
     }
-    if (!conv) return;
+    if (!conv) {
+      console.error("[store] Conversation still not found after DB lookup:", activeId);
+      return;
+    }
+
+    console.log("[store] Ready to send, sessionKey:", conv.sessionKey);
 
     // Add user message to DB and state
     const userMsg: Message = {
@@ -420,9 +486,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     // Send via gateway
     const gw = getGateway();
+    console.log("[store] Sending to gateway, sessionKey:", conv.sessionKey, "content:", content);
     try {
       await gw.sendMessage(conv.sessionKey, content);
-    } catch {
+      console.log("[store] Message sent to gateway successfully");
+    } catch (e) {
+      console.error("[store] Failed to send message:", e);
       dispatch({ type: "SET_STREAMING", isStreaming: false });
     }
   }, []);
@@ -452,6 +521,43 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       await updateTheme(newTheme);
       dispatch({ type: "SET_THEME", theme: newTheme });
     }
+  }, []);
+
+  const loadModels = useCallback(async () => {
+    const gw = getGateway();
+    if (!gw.isConnected()) return;
+    try {
+      const res = await gw.listModels();
+      if (res.ok && res.payload) {
+        const rawModels = (res.payload as any).models || [];
+        const models = rawModels.map((m: string | { name: string }) =>
+          typeof m === "string" ? m : (m.name || String(m))
+        );
+        dispatch({ type: "SET_MODELS", models });
+        if (models.length > 0 && !stateRef.current.currentModel) {
+          dispatch({ type: "SET_CURRENT_MODEL", model: models[0] });
+        }
+      }
+    } catch (e) {
+      console.error("[store] Failed to load models:", e);
+    }
+  }, []);
+
+  const loadModelMenu = useCallback(async () => {
+    try {
+      const data = await invoke<Record<string, string[]>>("get_model_menu");
+      console.log("[store] get_model_menu result:", data);
+      dispatch({ type: "SET_MODEL_MENU", menuData: data });
+    } catch (e) {
+      console.error("[store] Failed to load model menu:", e);
+    }
+  }, []);
+
+  const switchModel = useCallback(async (model: string) => {
+    console.log("[store] switchModel called:", model);
+    // Just update local state - OpenClaw Gateway doesn't support switchModel
+    dispatch({ type: "SET_CURRENT_MODEL", model });
+    console.log("[store] Model switched to:", model);
   }, []);
 
   // ── Init ────────────────────────────────────────────────────────
@@ -505,6 +611,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     sendMessage: sendMessageAction,
     abortStreaming,
     toggleTheme,
+    loadModels,
+    loadModelMenu,
+    switchModel,
   };
 
   return (

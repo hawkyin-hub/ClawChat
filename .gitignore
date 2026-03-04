@@ -9,6 +9,8 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+package-lock.json
+bun.lockb
 
 # testing
 /coverage
@@ -40,3 +42,18 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 REQUIREMENTS.md
+
+# IDE
+.vscode/
+.idea/
+
+# build outputs
+release/
+dist/
+
+# Tauri
+src-tauri/target/
+
+# local tasks
+tasks/
+Volumes/

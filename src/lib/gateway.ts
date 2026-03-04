@@ -211,13 +211,15 @@ export class GatewayClient {
 
       this.pending.set(id, { resolve, reject, timer });
 
+      const payload = {
+        type: "req",
+        id,
+        method,
+        params,
+      };
+      console.log("[Gateway] Sending:", JSON.stringify(payload));
       this.ws.send(
-        JSON.stringify({
-          type: "req",
-          id,
-          method,
-          params,
-        })
+        JSON.stringify(payload)
       );
     });
   }
@@ -231,7 +233,7 @@ export class GatewayClient {
     return this.sendRequest("chat.send", {
       sessionKey,
       message,
-      deliver: false,
+      deliver: true,
       idempotencyKey: uuidv4(),
     });
   }
@@ -252,6 +254,17 @@ export class GatewayClient {
   async listSessions(): Promise<GatewayResponse> {
     return this.sendRequest("sessions.list", {});
   }
+
+  // ── Model Methods ──────────────────────────────────────────────
+
+  async listModels(): Promise<GatewayResponse> {
+    return this.sendRequest("models.list", {});
+  }
+
+  // switchModel not supported by OpenClaw Gateway
+  // async switchModel(sessionKey: string, model: string): Promise<GatewayResponse> {
+  //   return this.sendRequest("chat.switchModel", { sessionKey, model });
+  // }
 
   // ── Agent Identity ────────────────────────────────────────────
 

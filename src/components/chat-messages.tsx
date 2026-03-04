@@ -69,35 +69,27 @@ export function ChatMessages() {
       <div className="mx-auto max-w-3xl px-4 py-8">
         <div className="space-y-6">
           {state.messages.map((msg) => (
-            <div key={msg.id} className="flex gap-4">
-              <Avatar
-                className={cn(
-                  "size-8 shrink-0 mt-0.5",
-                  msg.role === "user"
-                    ? "bg-secondary"
-                    : "bg-primary/10 ring-1 ring-primary/20"
-                )}
-              >
-                <AvatarFallback
-                  className={cn(
-                    msg.role === "user"
-                      ? "bg-secondary text-secondary-foreground"
-                      : "bg-primary/10 text-primary"
-                  )}
+            <div
+              key={msg.id}
+              className={cn("flex gap-4", msg.role === "user" ? "justify-end" : "")}
+            >
+              {msg.role === "assistant" && (
+                <Avatar
+                  className="size-8 shrink-0 mt-0.5 bg-primary/10 ring-1 ring-primary/20"
                 >
-                  {msg.role === "user" ? (
-                    <User className="size-4" />
-                  ) : state.agentIdentity?.emoji ? (
-                    <span className="text-sm">
-                      {state.agentIdentity.emoji}
-                    </span>
-                  ) : (
-                    <Bot className="size-4" />
-                  )}
-                </AvatarFallback>
-              </Avatar>
+                  <AvatarFallback className="bg-primary/10 text-primary">
+                    {state.agentIdentity?.emoji ? (
+                      <span className="text-sm">
+                        {state.agentIdentity.emoji}
+                      </span>
+                    ) : (
+                      <Bot className="size-4" />
+                    )}
+                  </AvatarFallback>
+                </Avatar>
+              )}
 
-              <div className="min-w-0 flex-1">
+              <div className={cn("min-w-0 flex-1 max-w-[70%]", msg.role === "user" ? "text-right" : "")}>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">
                   {msg.role === "user"
                     ? "You"
@@ -118,6 +110,14 @@ export function ChatMessages() {
                   )}
                 </div>
               </div>
+
+              {msg.role === "user" && (
+                <Avatar className="size-8 shrink-0 mt-0.5 bg-secondary">
+                  <AvatarFallback className="bg-secondary text-secondary-foreground">
+                    <User className="size-4" />
+                  </AvatarFallback>
+                </Avatar>
+              )}
             </div>
           ))}
 

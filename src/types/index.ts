@@ -117,4 +117,9 @@ export interface AppState {
   streamingContent: string;
   currentRunId: string | null;
   streamingConversationId: string | null;
+
+  // Models
+  availableModels: string[];
+  currentModel: string | null;
+  modelMenuData: Record<string, string[]>;
 }

@@ -11,6 +11,7 @@ import { ChatMessages } from "@/components/chat-messages";
 import { ChatInput } from "@/components/chat-input";
 import { ConnectionIndicator } from "@/components/connection-indicator";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { ModelSelector } from "@/components/model-selector";
 import { useStore } from "@/lib/store";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,53 @@ export function ChatLayout() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                console.log("=== DEBUG INFO ===");
+                console.log("menuData:", state.modelMenuData);
+                console.log("currentModel:", state.currentModel);
+                console.log("availableModels:", state.availableModels);
+                console.log("connectionStatus:", state.connectionStatus);
+                alert("Debug info logged to console. Press F12 to view.");
+              }}
+              style={{
+                padding: "4px 8px",
+                fontSize: "11px",
+                background: "transparent",
+                border: "1px solid hsl(var(--border))",
+                borderRadius: "4px",
+                cursor: "pointer",
+                color: "hsl(var(--muted-foreground))",
+              }}
+              title="Debug: Log info to console"
+            >
+              DEBUG
+            </button>
+            <ModelSelector
+              menuData={state.modelMenuData}
+              currentModel={state.currentModel}
+              onSwitch={(model) => {
+                console.log("[chat-layout] Model selected:", model);
+                // Switch model
+                actions.switchModel(model);
+                // Create a new conversation if needed and send the model info
+                const msg = `使用大模型：${model}`;
+                console.log("[chat-layout] Sending model info message:", msg);
+                // Get or create a conversation
+                let convId = state.activeConversationId;
+                if (!convId) {
+                  // Need to create a new conversation
+                  actions.newConversation().then((newId) => {
+                    console.log("[chat-layout] Created conversation:", newId);
+                    setTimeout(() => {
+                      actions.sendMessage(msg, newId);
+                    }, 200);
+                  });
+                } else {
+                  actions.sendMessage(msg, convId);
+                }
+              }}
+            />
             <ConnectionIndicator />
             <SettingsDialog />
           </div>
