@@ -1,4 +1,10 @@
 # ChatClaw
+在此基础上修改，感谢原作者：https://github.com/ngmaloney/clawchat
+非程序员，没弄清楚怎么fork，怎么publish。。
+
+主要增加的feature：
+对话框可以/skills，另外可以菜单操作切换openclaw 的大模型。
+没试过公网连接，没有环境。
 
 A polished, open-source web chat client for [OpenClaw](https://github.com/openclaw/openclaw) Gateway.
 
