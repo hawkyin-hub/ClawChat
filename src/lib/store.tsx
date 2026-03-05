@@ -253,6 +253,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (payload: ChatEventPayload) => {
       console.log("[store] handleChatEvent payload:", JSON.stringify(payload));
       const current = stateRef.current;
+
+      // Debug: log all conversations for comparison
+      console.log("[store] Current conversations:", JSON.stringify(
+        current.conversations.map(c => ({ id: c.id, title: c.title, sessionKey: c.sessionKey }))
+      ));
+      console.log("[store] activeConversationId:", current.activeConversationId);
+
       // Try different field names for message content
       const text =
         payload.message?.content?.[0]?.text ??
@@ -261,9 +268,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         "";
 
       console.log("[store] extracted text:", text);
+      console.log("[store] payload.sessionKey:", payload.sessionKey);
+      console.log("[store] payload.state:", payload.state);
 
       switch (payload.state) {
         case "delta": {
+          // For delta events, we also need to track which conversation this belongs to
+          // because user might have switched conversations while streaming
+          const payloadSessionKey = payload.sessionKey;
+          let targetConversationId: string | null = null;
+
+          if (payloadSessionKey) {
+            const rawSessionKey = payloadSessionKey.replace(/^agent:default-agent:/, "");
+            const conv = current.conversations.find(
+              (c) => c.sessionKey === rawSessionKey
+            );
+            if (conv) {
+              targetConversationId = conv.id;
+            }
+          }
+
+          // Start streaming if not already, with the correct conversation ID
+          if (!current.isStreaming && targetConversationId) {
+            dispatch({
+              type: "SET_STREAMING",
+              isStreaming: true,
+              conversationId: targetConversationId,
+            });
+          }
+
           dispatch({
             type: "SET_STREAMING_CONTENT",
             content: text,
@@ -273,24 +306,69 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
         case "final": {
           const finalText = text || current.streamingContent;
-          if (finalText && current.activeConversationId) {
+          // Get sessionKey from payload - it has full format "agent:default-agent:xxx"
+          const payloadSessionKey = payload.sessionKey;
+
+          // Always use payload's sessionKey to find the correct conversation,
+          // not activeConversationId which may have changed due to async WebSocket events
+          let targetConversationId: string | null = null;
+
+          if (payloadSessionKey) {
+            // Extract the raw sessionKey (without "agent:default-agent:" prefix)
+            const rawSessionKey = payloadSessionKey.replace(/^agent:default-agent:/, "");
+            console.log("[store] final event - payloadSessionKey:", payloadSessionKey);
+            console.log("[store] final event - rawSessionKey:", rawSessionKey);
+            console.log("[store] final event, looking for conversation with sessionKey:", rawSessionKey);
+
+            // Find conversation by sessionKey
+            const conv = current.conversations.find(
+              (c) => c.sessionKey === rawSessionKey
+            );
+            console.log("[store] Found conversation by sessionKey:", conv);
+            if (conv) {
+              targetConversationId = conv.id;
+            } else {
+              // Also try matching with the full sessionKey (some conversations might store the full format)
+              const convFull = current.conversations.find(
+                (c) => c.sessionKey === payloadSessionKey || c.sessionKey === "agent:default-agent:" + rawSessionKey
+              );
+              console.log("[store] Tried full format match:", convFull);
+              if (convFull) {
+                targetConversationId = convFull.id;
+              }
+            }
+          }
+
+          if (!targetConversationId && current.activeConversationId) {
+            // Fallback: use activeConversationId if no sessionKey in payload
+            console.log("[store] Using fallback - activeConversationId:", current.activeConversationId);
+            targetConversationId = current.activeConversationId;
+          }
+
+          console.log("[store] Final targetConversationId:", targetConversationId);
+
+          if (finalText && targetConversationId) {
             const msg: Message = {
               id: uuidv4(),
-              conversationId: current.activeConversationId!,
+              conversationId: targetConversationId,
               role: "assistant",
               content: finalText,
               createdAt: payload.message?.timestamp ?? Date.now(),
             };
+            console.log("[store] Adding final message to conversation:", targetConversationId);
             addMessage(msg).then(() => {
               dispatch({ type: "ADD_MESSAGE", message: msg });
             });
-          } else if (current.activeConversationId) {
-            // No text in event, try to fetch from chat history
+          } else if (payloadSessionKey && targetConversationId && !finalText) {
+            // No text in final event, fetch chat history to get the assistant response
+            const rawSessionKey = payloadSessionKey.replace(/^agent:default-agent:/, "");
+            console.log("[store] No text in final event, fetching chat history with sessionKey:", rawSessionKey);
+
+            // Find conversation by sessionKey (already found above, but get the sessionKey for API call)
             const conv = current.conversations.find(
-              (c) => c.id === current.activeConversationId
+              (c) => c.sessionKey === rawSessionKey
             );
-            console.log("[store] Looking for conversation:", current.activeConversationId);
-            console.log("[store] Found conversation:", conv);
+            console.log("[store] Found conversation by sessionKey:", conv);
             if (conv?.sessionKey) {
               console.log("[store] No text in final event, fetching chat history with sessionKey:", conv.sessionKey);
               getGateway()
@@ -298,7 +376,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 .then((res) => {
                   console.log("[store] chat.history response:", JSON.stringify(res));
                   const historyAny = res as any;
-                  const messages = historyAny.result?.messages || [];
+                  console.log("[store] historyAny payload:", historyAny.payload);
+                  const messages = historyAny.payload?.messages || historyAny.result?.messages || [];
                   console.log("[store] History messages count:", messages.length);
                   // Find the last assistant message
                   const lastAssistant = messages
@@ -315,10 +394,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                       .map((c: any) => c.text)
                       .join("");
                     console.log("[store] Extracted text content:", textContent);
-                    if (textContent) {
+                    if (textContent && conv?.id) {
                       const msg: Message = {
                         id: uuidv4(),
-                        conversationId: current.activeConversationId!,
+                        conversationId: conv.id,
                         role: "assistant",
                         content: textContent,
                         createdAt: Date.now(),

@@ -168,16 +168,30 @@ export function ChatInput() {
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Handle history navigation (only when no skill selector and no composition)
-    if (!showSkillSelector && !composingRef.current && userHistory.length > 0) {
-      // ArrowUp: 正在浏览历史 OR 输入框为空，都可以进入/继续浏览
+    // Handle history navigation (only when no skill selector, no composition, and NO SHIFT key)
+    if (!showSkillSelector && !composingRef.current && !e.shiftKey && userHistory.length > 0) {
+      // 获取当前浏览的历史记录内容
+      const currentHistoryItem = historyIndex >= 0 ? userHistory[historyIndex] : null;
+
+      // ArrowUp: 浏览历史 或 输入框为空
       if (e.key === "ArrowUp") {
+        // 如果正在浏览历史，但用户修改了输入框内容，不再浏览历史
+        if (historyIndex >= 0 && currentHistoryItem !== null && input !== currentHistoryItem) {
+          // 用户修改了内容，停止历史浏览，让浏览器处理输入框内的移动
+          setHistoryIndex(-1);
+          setHistoryInput("");
+          // 不 return，让浏览器处理 ArrowUp（输入框内移动光标）
+          return;
+        }
+
         e.preventDefault();
-        // 如果不是正在浏览历史，保存当前输入并开始浏览
+        // 如果不是正在浏览历史，保存当前输入并开始浏览（输入框为空时）
         if (historyIndex === -1) {
-          setHistoryInput(input);
-          setHistoryIndex(0);
-          setInput(userHistory[0]);
+          if (input.trim() === "") {
+            setHistoryInput(input);
+            setHistoryIndex(0);
+            setInput(userHistory[0]);
+          }
         } else if (historyIndex < userHistory.length - 1) {
           // 继续浏览更早的历史
           setHistoryIndex(historyIndex + 1);
@@ -185,6 +199,13 @@ export function ChatInput() {
         }
         return;
       } else if (e.key === "ArrowDown") {
+        // 如果正在浏览历史，但用户修改了输入框内容，不再浏览历史
+        if (historyIndex >= 0 && currentHistoryItem !== null && input !== currentHistoryItem) {
+          setHistoryIndex(-1);
+          setHistoryInput("");
+          return;
+        }
+
         e.preventDefault();
         if (historyIndex > 0) {
           setHistoryIndex(historyIndex - 1);
