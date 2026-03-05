@@ -54,7 +54,8 @@ type Action =
   | { type: "SET_THEME"; theme: "dark" | "light" }
   | { type: "SET_MODELS"; models: string[] }
   | { type: "SET_CURRENT_MODEL"; model: string | null }
-  | { type: "SET_MODEL_MENU"; menuData: Record<string, string[]> };
+  | { type: "SET_MODEL_MENU"; menuData: Record<string, string[]> }
+  | { type: "SET_NICKNAMES"; assistant: string | null; user: string | null };
 
 // ── Initial State ───────────────────────────────────────────────────
 
@@ -75,6 +76,8 @@ const initialState: AppState = {
   availableModels: [],
   currentModel: null,
   modelMenuData: {},
+  assistantNickname: null,
+  userNickname: null,
 };
 
 // ── Reducer ─────────────────────────────────────────────────────────
@@ -149,6 +152,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, currentModel: action.model };
     case "SET_MODEL_MENU":
       return { ...state, modelMenuData: action.menuData };
+    case "SET_NICKNAMES":
+      return { ...state, assistantNickname: action.assistant, userNickname: action.user };
     default:
       return state;
   }
@@ -246,9 +251,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const handleChatEvent = useCallback(
     (payload: ChatEventPayload) => {
+      console.log("[store] handleChatEvent payload:", JSON.stringify(payload));
       const current = stateRef.current;
+      // Try different field names for message content
       const text =
-        payload.message?.content?.[0]?.text ?? "";
+        payload.message?.content?.[0]?.text ??
+        (payload as any).message?.text ??
+        (payload as any).text ??
+        "";
+
+      console.log("[store] extracted text:", text);
 
       switch (payload.state) {
         case "delta": {
@@ -272,6 +284,58 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             addMessage(msg).then(() => {
               dispatch({ type: "ADD_MESSAGE", message: msg });
             });
+          } else if (current.activeConversationId) {
+            // No text in event, try to fetch from chat history
+            const conv = current.conversations.find(
+              (c) => c.id === current.activeConversationId
+            );
+            console.log("[store] Looking for conversation:", current.activeConversationId);
+            console.log("[store] Found conversation:", conv);
+            if (conv?.sessionKey) {
+              console.log("[store] No text in final event, fetching chat history with sessionKey:", conv.sessionKey);
+              getGateway()
+                .getChatHistory(conv.sessionKey, 10)
+                .then((res) => {
+                  console.log("[store] chat.history response:", JSON.stringify(res));
+                  const historyAny = res as any;
+                  const messages = historyAny.result?.messages || [];
+                  console.log("[store] History messages count:", messages.length);
+                  // Find the last assistant message
+                  const lastAssistant = messages
+                    .filter((m: any) => m.role === "assistant")
+                    .pop();
+                  console.log("[store] Last assistant message:", lastAssistant);
+                  if (lastAssistant?.content) {
+                    // content is an array, extract text from text type items
+                    const contentArray = Array.isArray(lastAssistant.content)
+                      ? lastAssistant.content
+                      : [lastAssistant.content];
+                    const textContent = contentArray
+                      .filter((c: any) => c.type === "text")
+                      .map((c: any) => c.text)
+                      .join("");
+                    console.log("[store] Extracted text content:", textContent);
+                    if (textContent) {
+                      const msg: Message = {
+                        id: uuidv4(),
+                        conversationId: current.activeConversationId!,
+                        role: "assistant",
+                        content: textContent,
+                        createdAt: Date.now(),
+                      };
+                      console.log("[store] Adding message from history:", msg);
+                      addMessage(msg).then(() => {
+                        dispatch({ type: "ADD_MESSAGE", message: msg });
+                      });
+                    } else {
+                      console.log("[store] No text content found in assistant message");
+                    }
+                  }
+                })
+                .catch((e) => {
+                  console.error("[store] Failed to fetch chat history:", e);
+                });
+            }
           }
           dispatch({ type: "SET_STREAMING", isStreaming: false });
           lastTextRef.current = "";
@@ -340,6 +404,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const settings = await getSettings();
     dispatch({ type: "SET_SETTINGS", settings });
     dispatch({ type: "SET_SETTINGS_LOADED" });
+
+    // Load nicknames from IDENTITY.md and USER.md
+    try {
+      const result = await invoke<{ assistant: string | null; user: string | null }>("get_nicknames");
+      console.log("[store] get_nicknames result:", result);
+      dispatch({ type: "SET_NICKNAMES", assistant: result.assistant, user: result.user });
+    } catch (e) {
+      console.error("Failed to load nicknames:", e);
+    }
   }, []);
 
   const connectGateway = useCallback(() => {
@@ -486,12 +559,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     // Send via gateway
     const gw = getGateway();
-    console.log("[store] Sending to gateway, sessionKey:", conv.sessionKey, "content:", content);
     try {
-      await gw.sendMessage(conv.sessionKey, content);
-      console.log("[store] Message sent to gateway successfully");
+      const response = await gw.sendMessage(conv.sessionKey, content);
+      console.log("[store] sendMessage response:", JSON.stringify(response));
+
+      // Backup: try to extract message from response if handleChatEvent fails
+      const resAny = response as any;
+      const responseContent = resAny.result?.content ?? resAny.result?.message ?? resAny.result?.text ?? "";
+      console.log("[store] response content:", responseContent);
+
+      if (responseContent) {
+        const msg: Message = {
+          id: uuidv4(),
+          conversationId: activeId,
+          role: "assistant",
+          content: responseContent,
+          createdAt: Date.now(),
+        };
+        console.log("[store] Adding from response:", msg);
+        await addMessage(msg);
+        dispatch({ type: "ADD_MESSAGE", message: msg });
+      }
     } catch (e) {
-      console.error("[store] Failed to send message:", e);
+      console.error("Failed to send message:", e);
       dispatch({ type: "SET_STREAMING", isStreaming: false });
     }
   }, []);

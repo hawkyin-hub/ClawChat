@@ -122,4 +122,8 @@ export interface AppState {
   availableModels: string[];
   currentModel: string | null;
   modelMenuData: Record<string, string[]>;
+
+  // Nicknames from IDENTITY.md and USER.md
+  assistantNickname: string | null;
+  userNickname: string | null;
 }

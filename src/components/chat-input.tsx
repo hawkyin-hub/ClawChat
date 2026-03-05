@@ -20,6 +20,14 @@ export function ChatInput() {
   const [activeSkill, setActiveSkill] = useState<{ name: string; description: string } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [historyInput, setHistoryInput] = useState("");
+
+  // 获取当前会话的用户历史输入
+  const userHistory = state.messages
+    .filter((m) => m.role === "user" && m.content.trim())
+    .map((m) => m.content)
+    .reverse();
 
   const isStreamingHere =
     state.isStreaming &&
@@ -89,6 +97,8 @@ export function ChatInput() {
 
     setInput("");
     setActiveSkill(null);
+    setHistoryIndex(-1);
+    setHistoryInput("");
     actions.sendMessage(text, state.activeConversationId || undefined);
   }, [input, isStreamingHere, state.activeConversationId, actions]);
 
@@ -158,6 +168,46 @@ export function ChatInput() {
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Handle history navigation (only when no skill selector and no composition)
+    if (!showSkillSelector && !composingRef.current && userHistory.length > 0) {
+      // ArrowUp: 正在浏览历史 OR 输入框为空，都可以进入/继续浏览
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        // 如果不是正在浏览历史，保存当前输入并开始浏览
+        if (historyIndex === -1) {
+          setHistoryInput(input);
+          setHistoryIndex(0);
+          setInput(userHistory[0]);
+        } else if (historyIndex < userHistory.length - 1) {
+          // 继续浏览更早的历史
+          setHistoryIndex(historyIndex + 1);
+          setInput(userHistory[historyIndex + 1]);
+        }
+        return;
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (historyIndex > 0) {
+          setHistoryIndex(historyIndex - 1);
+          setInput(userHistory[historyIndex - 1]);
+        } else if (historyIndex === 0) {
+          // 回到起点，恢复用户之前输入的内容
+          setHistoryIndex(-1);
+          setInput(historyInput);
+          setHistoryInput("");
+        }
+        // 如果 historyIndex === -1 (已经回到起点)，输入框内容保持不动
+        return;
+      }
+    }
+
+    // Reset history navigation when user starts typing (non-arrow keys)
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") {
+      if (historyIndex !== -1) {
+        setHistoryIndex(-1);
+        setHistoryInput("");
+      }
+    }
+
     // Handle skill selector navigation
     if (showSkillSelector) {
       if (e.key === "Escape") {

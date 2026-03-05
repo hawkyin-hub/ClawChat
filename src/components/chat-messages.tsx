@@ -89,18 +89,18 @@ export function ChatMessages() {
                 </Avatar>
               )}
 
-              <div className={cn("min-w-0 flex-1 max-w-[70%]", msg.role === "user" ? "text-right" : "")}>
+              <div className={cn("min-w-0 w-[70%] max-w-[70%]", msg.role === "user" ? "text-right" : "")}>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">
                   {msg.role === "user"
-                    ? "You"
-                    : state.agentIdentity?.name ?? "Assistant"}
+                    ? state.userNickname ?? "You"
+                    : state.assistantNickname ?? state.agentIdentity?.name ?? "Assistant"}
                 </p>
                 <div
                   className={cn(
-                    "text-sm leading-relaxed",
+                    "text-sm leading-relaxed rounded-xl px-4 py-3",
                     msg.role === "user"
-                      ? "rounded-xl bg-muted/50 px-4 py-3"
-                      : "prose-sm"
+                      ? "bg-[#95ec69] text-black"
+                      : "bg-zinc-800 text-zinc-100 prose-sm"
                   )}
                 >
                   {msg.role === "assistant" ? (
@@ -134,11 +134,11 @@ export function ChatMessages() {
                   )}
                 </AvatarFallback>
               </Avatar>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 w-[70%] max-w-[70%]">
                 <p className="mb-1 text-xs font-medium text-muted-foreground">
-                  {state.agentIdentity?.name ?? "Assistant"}
+                  {state.assistantNickname ?? state.agentIdentity?.name ?? "Assistant"}
                 </p>
-                <div className="text-sm leading-relaxed">
+                <div className="text-sm leading-relaxed rounded-xl bg-zinc-800 text-zinc-100 px-4 py-3">
                   {state.streamingContent ? (
                     <>
                       <MarkdownRenderer content={state.streamingContent} />

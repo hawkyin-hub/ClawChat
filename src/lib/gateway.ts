@@ -134,6 +134,7 @@ export class GatewayClient {
         this.handleChallenge();
         break;
       case "chat":
+        console.log("[Gateway] chat event payload:", JSON.stringify(event.payload));
         this.handlers.onChatEvent?.(event.payload as unknown as ChatEventPayload);
         break;
     }
@@ -217,7 +218,6 @@ export class GatewayClient {
         method,
         params,
       };
-      console.log("[Gateway] Sending:", JSON.stringify(payload));
       this.ws.send(
         JSON.stringify(payload)
       );
